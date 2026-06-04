@@ -30,10 +30,6 @@ let extensionCtx: vscode.ExtensionContext;
 
 // Referenzen für korrektes unsubscribe() (WeakRef würde nicht funktionieren)
 let dcRequestHandler: ((msg: unknown) => void) | undefined;
-let dcResponseHandler: ((msg: unknown) => void) | undefined;
-
-// Nur eigene Requests tracken (WeakSet = kein Memory-Leak)
-const pendingRequests = new WeakSet<http.ClientRequest>();
 
 export function activate(context: vscode.ExtensionContext) {
   extensionCtx = context;
@@ -89,7 +85,7 @@ export function activate(context: vscode.ExtensionContext) {
 // ── Passiver HTTP-Interceptor ────────────────────────────────────────────────
 
 function installIntercept() {
-  if (dcRequestHandler || dcResponseHandler) uninstallIntercept();
+  if (dcRequestHandler) uninstallIntercept();
 
   try {
     // Feuert für JEDEN ausgehenden HTTP-Request im Extension-Host-Prozess
@@ -97,32 +93,26 @@ function installIntercept() {
       try {
         const req = (message as { request: http.ClientRequest }).request;
         if (!req) return;
-        const reqPath = (req as unknown as { path?: string }).path;
+        const reqPath =
+          ((req as unknown as { path?: string }).path as string | undefined) ??
+          ((req as unknown as { _header?: string })._header as
+            | string
+            | undefined);
         // Nur anthropic.com Usage-Endpunkt – expliziter Host-Check verhindert
         // dass unverwandte Extensions unbeabsichtigt getrackt werden
-        const host = req.getHeader?.("host") as string | undefined;
+        const host =
+          (req.getHeader?.("host") as string | undefined) ??
+          ((req as unknown as { host?: string }).host as string | undefined) ??
+          ((req as unknown as { _host?: string })._host as string | undefined);
         if (
           reqPath?.includes("/api/oauth/usage") &&
           host?.includes("anthropic.com")
         ) {
-          pendingRequests.add(req);
-        }
-      } catch {
-        // Niemals andere Extensions unterbrechen
-      }
-    };
-
-    // Feuert wenn eine Antwort vollständig empfangen wurde
-    dcResponseHandler = (message: unknown) => {
-      try {
-        const msg = message as {
-          request: http.ClientRequest;
-          response: http.IncomingMessage;
-        };
-        if (!pendingRequests.has(msg.request)) return;
-        pendingRequests.delete(msg.request);
-        if (msg.response.statusCode === 200) {
-          tapBody(msg.response);
+          // Genau hier anhängen, damit der Body früh genug mitgelesen wird.
+          // Bei response.finish wäre es bereits zu spät.
+          req.once("response", (res: http.IncomingMessage) => {
+            tapBody(res);
+          });
         }
       } catch {
         // Niemals andere Extensions unterbrechen
@@ -132,10 +122,6 @@ function installIntercept() {
     diagnostics_channel.subscribe(
       "http.client.request.start",
       dcRequestHandler
-    );
-    diagnostics_channel.subscribe(
-      "http.client.response.finish",
-      dcResponseHandler
     );
   } catch {
     // diagnostics_channel nicht verfügbar – nur File-Watcher bleibt aktiv
@@ -149,14 +135,8 @@ function uninstallIntercept() {
         "http.client.request.start",
         dcRequestHandler
       );
-    if (dcResponseHandler)
-      diagnostics_channel.unsubscribe(
-        "http.client.response.finish",
-        dcResponseHandler
-      );
   } catch {}
   dcRequestHandler = undefined;
-  dcResponseHandler = undefined;
 }
 
 /** Liest den Response-Body mit, ohne den originalen Datenfluss zu stören */
@@ -310,7 +290,7 @@ function updateBar() {
   const w = cached.weekly;
 
   if (!s && !w) {
-    statusBarItem.text = "$(check) Claude OK";
+    statusBarItem.text = "$(clock) Claude: warte auf Usage";
     statusBarItem.tooltip =
       "Claude Usage\nNoch keine Daten – sende eine Nachricht in Claude Code.";
     statusBarItem.backgroundColor = undefined;
