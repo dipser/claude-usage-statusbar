@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Claude Usage Statusbar">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0E2433"/>
+      <stop offset="100%" stop-color="#14516A"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="22" fill="url(#bg)"/>
+  <rect x="26" y="38" width="76" height="12" rx="6" fill="#8BD3E6" opacity="0.4"/>
+  <rect x="26" y="58" width="50" height="12" rx="6" fill="#8BD3E6"/>
+  <rect x="26" y="78" width="64" height="12" rx="6" fill="#8BD3E6" opacity="0.7"/>
+  <circle cx="99" cy="30" r="9" fill="#FFB703"/>
+</svg>
