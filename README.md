@@ -1,5 +1,9 @@
 # Claude Usage Statusbar
 
+<p align="center">
+  <img src="icon.png" width="96" height="96" alt="Claude Usage Statusbar Icon"/>
+</p>
+
 Zeigt deine **Claude Code Rate-Limit-Nutzung** (Session 5h & Weekly 7d) direkt in der VS Code Statusleiste – ohne einen einzigen zusätzlichen API-Call.
 
 ## Wie es funktioniert
