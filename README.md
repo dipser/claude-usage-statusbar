@@ -1,7 +1,7 @@
 # Claude Usage Statusbar
 
 <p align="center">
-  <img src="icon.png" width="96" height="96" alt="Claude Usage Statusbar Icon"/>
+  <img src="icon.svg" width="96" height="96" alt="Claude Usage Statusbar Icon"/>
 </p>
 
 Zeigt deine **Claude Code Rate-Limit-Nutzung** (Session 5h & Weekly 7d) direkt in der VS Code Statusleiste.
@@ -19,14 +19,20 @@ Die Extension liest die gespeicherten Claude-Zugangsdaten aus `~/.claude/.creden
 | Anzeige | Bedeutung |
 |---|---|
 | `✦` | Noch keine Daten |
-| `◑ S42` | Session 42% (Halbkreis = 26–50%) |
-| `◑ S42 ◕ W75` | Session + Weekly |
+| `S:▰▰▱▱45%` | Session 45% (4 von 10 Blöcke) |
+| `S:▰▰▱▱45%  W:▰▱▱▱12%` | Session + Weekly |
 | Gelber Hintergrund | ≥ 70% |
 | Roter Hintergrund | ≥ 90% |
 
-Die Kreissymbole zeigen den Füllstand: ○ (0%) · ◔ (1–25%) · ◑ (26–50%) · ◕ (51–75%) · ● (76–100%)
+Die 4 Blöcke in der Bar zeigen grobe Stufen: ▱▱▱▱ (0–24%) · ▰▱▱▱ (25–49%) · ▰▰▱▱ (50–74%) · ▰▰▰▱ (75–99%) · ▰▰▰▰ (100%)
 
-Der Tooltip zeigt genaue Prozentwerte und die verbleibende Zeit bis zum Reset.
+## Tooltip
+
+Beim Hover über die Statusleiste erscheint ein detaillierter Tooltip mit:
+
+- **Session (5h)** und **Weekly (7d)** Nutzung
+- Fortschrittsbalken mit 10 Blöcken (▰▰▰▱▱▱▱▱▱▱)
+- Reset-Datum (z.B. „Setzt 1. Juli um 02:00 zurück")
 
 ## Installation (als .vsix-Datei)
 
@@ -36,7 +42,7 @@ Der Tooltip zeigt genaue Prozentwerte und die verbleibende Zeit bis zum Reset.
 
 Oder per Terminal:
 ```bash
-code --install-extension claude-usage-statusbar-0.2.0.vsix
+code --install-extension claude-usage-statusbar-0.3.5.vsix
 ```
 
 ## Selbst bauen

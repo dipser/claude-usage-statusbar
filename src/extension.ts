@@ -203,23 +203,32 @@ function resetExpired() {
 
 // ── Statusleiste ──────────────────────────────────────────────────────────────
 
+function miniBar(pct: number): string {
+  const filled = Math.round(pct / 25);
+  return "▰".repeat(filled) + "▱".repeat(4 - filled);
+}
+
+function tooltipBar(pct: number): string {
+  const filled = Math.round(pct / 10);
+  return "▰".repeat(filled) + "▱".repeat(10 - filled);
+}
+
 function circleIcon(pct: number): string {
   if (pct === 0) return "○";
   if (pct <= 25) return "◔";
   if (pct <= 50) return "◑";
   if (pct <= 75) return "◕";
-  return "●";
+  return "⬤";
 }
 
-function timeLeft(epochSec: number): string {
-  const diff = Math.floor(epochSec - Date.now() / 1000);
-  if (diff <= 0) return "gleich";
-  const d = Math.floor(diff / 86400);
-  const h = Math.floor((diff % 86400) / 3600);
-  const m = Math.floor((diff % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+
+function resetLabel(epochSec: number): string {
+  const date = new Date(epochSec * 1000);
+  const day = date.getDate();
+  const month = date.toLocaleString("de-DE", { month: "long" });
+  const hh = date.getHours().toString().padStart(2, "0");
+  const mm = date.getMinutes().toString().padStart(2, "0");
+  return `Setzt ${day}. ${month} um ${hh}:${mm} zurück`;
 }
 
 function updateBar() {
@@ -238,28 +247,37 @@ function updateBar() {
 
   if (s) {
     const pct = Math.floor(s.utilization * 100);
-    parts.push(`${circleIcon(pct)} S${pct}`);
+    parts.push(`S:${miniBar(pct)}${pct}%`);
     pcts.push(pct);
   }
   if (w) {
     const pct = Math.floor(w.utilization * 100);
-    parts.push(`${circleIcon(pct)} W${pct}`);
+    parts.push(`W:${miniBar(pct)}${pct}%`);
     pcts.push(pct);
   }
 
-  statusBarItem.text = parts.join(" ");
+  statusBarItem.text = parts.join("  ");
 
-  const lines: string[] = ["Claude Rate Limits"];
+  const md = new vscode.MarkdownString("", true);
+  md.supportThemeIcons = true;
+  md.isTrusted = true;
+  md.appendMarkdown("### Claude Usage\n\n");
   if (s) {
     const pct = Math.floor(s.utilization * 100);
-    lines.push(`Session (5h):  ${pct}%${s.resetsAt ? "  · Reset in " + timeLeft(s.resetsAt) : ""}`);
+    const resetStr = s.resetsAt ? resetLabel(s.resetsAt) : "";
+    md.appendMarkdown(`| **Session (5h)** | ${resetStr} |\n|---|---|\n\n`);
+    md.appendMarkdown(`**${pct}% verwendet**\n\n`);
+    md.appendMarkdown(`${tooltipBar(pct)}\n\n`);
   }
   if (w) {
     const pct = Math.floor(w.utilization * 100);
-    lines.push(`Weekly  (7d):  ${pct}%${w.resetsAt ? "  · Reset in " + timeLeft(w.resetsAt) : ""}`);
+    const resetStr = w.resetsAt ? resetLabel(w.resetsAt) : "";
+    if (s) md.appendMarkdown("---\n\n");
+    md.appendMarkdown(`| **Weekly (7d)** | ${resetStr} |\n|---|---|\n\n`);
+    md.appendMarkdown(`**${pct}% verwendet**\n\n`);
+    md.appendMarkdown(`${tooltipBar(pct)}\n\n`);
   }
-  lines.push("", "Klick zum Aktualisieren");
-  statusBarItem.tooltip = lines.join("\n");
+  statusBarItem.tooltip = md;
 
   const maxPct = Math.max(...pcts);
   statusBarItem.backgroundColor =
