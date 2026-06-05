@@ -2,7 +2,7 @@
   "name": "claude-usage-statusbar",
   "displayName": "Claude Usage Statusbar",
   "description": "Zeigt die Claude Code Rate-Limit-Nutzung (Session & Weekly) in der VS Code Statusleiste.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "dipser",
   "license": "MIT",
   "repository": {
@@ -20,15 +20,15 @@
   "contributes": {
     "commands": [
       {
-        "command": "claudeUsage.info",
-        "title": "Claude Usage: Info"
+        "command": "claudeUsage.refresh",
+        "title": "Claude Usage: Aktualisieren"
       }
     ]
   },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "npx @vscode/vsce package"
+    "package": "tsc -p ./ && npx @vscode/vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

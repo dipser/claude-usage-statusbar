@@ -4,21 +4,29 @@
   <img src="icon.png" width="96" height="96" alt="Claude Usage Statusbar Icon"/>
 </p>
 
-Zeigt deine **Claude Code Rate-Limit-Nutzung** (Session 5h & Weekly 7d) direkt in der VS Code Statusleiste – ohne einen einzigen zusätzlichen API-Call.
+Zeigt deine **Claude Code Rate-Limit-Nutzung** (Session 5h & Weekly 7d) direkt in der VS Code Statusleiste.
+
+<p align="center">
+  <img src="example.png" alt="Beispiel: Claude Usage Statusbar"/>
+</p>
 
 ## Wie es funktioniert
 
-Die Extension hängt sich passiv in den Node.js `diagnostics_channel` ein. Wenn Claude Code selbst seine `/api/oauth/usage`-Anfragen an Anthropic schickt, liest diese Extension die Antwort mit – vollkommen passiv, kein eigener Token, kein eigener Netzwerkaufruf.
+Die Extension liest die gespeicherten Claude-Zugangsdaten aus `~/.claude/.credentials.json` und ruft alle 5 Minuten `/api/oauth/usage` direkt ab. Als Fallback überwacht sie `~/.claude/usage-bar-data.json` für Daten aus Terminal-Claude-Sitzungen. Ein Klick auf die Statusleiste aktualisiert sofort.
 
 ## Statusleiste
 
 | Anzeige | Bedeutung |
 |---|---|
-| `$(check) Claude OK` | Noch keine Daten |
-| `$(pulse) S: 42% · 3h 10m` | Session 42%, Reset in 3h 10m |
-| `$(pulse) S: 82%  W: 40%` | Session + Weekly |
+| `✦` | Noch keine Daten |
+| `◑ S42` | Session 42% (Halbkreis = 26–50%) |
+| `◑ S42 ◕ W75` | Session + Weekly |
 | Gelber Hintergrund | ≥ 70% |
 | Roter Hintergrund | ≥ 90% |
+
+Die Kreissymbole zeigen den Füllstand: ○ (0%) · ◔ (1–25%) · ◑ (26–50%) · ◕ (51–75%) · ● (76–100%)
+
+Der Tooltip zeigt genaue Prozentwerte und die verbleibende Zeit bis zum Reset.
 
 ## Installation (als .vsix-Datei)
 
@@ -28,7 +36,7 @@ Die Extension hängt sich passiv in den Node.js `diagnostics_channel` ein. Wenn 
 
 Oder per Terminal:
 ```bash
-code --install-extension claude-usage-statusbar-0.1.0.vsix
+code --install-extension claude-usage-statusbar-0.2.0.vsix
 ```
 
 ## Selbst bauen

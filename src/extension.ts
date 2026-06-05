@@ -1,174 +1,126 @@
 import * as vscode from "vscode";
-import * as http from "http";
+import * as https from "https";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import * as diagnostics_channel from "diagnostics_channel";
-
-/**
- * Claude Usage Statusbar
- * ----------------------
- * Liest passiv die HTTP-Antworten von Claude Code via Node.js diagnostics_channel
- * (kein einziger zusätzlicher API-Call).
- * Zeigt Session- und Weekly-Nutzung in der VS Code Statusleiste.
- */
 
 interface UsageData {
   session?: { utilization: number; resetsAt?: number };
   weekly?: { utilization: number; resetsAt?: number };
 }
 
-// Sicherheitslimit: Antwort-Body nicht größer als 1 MB laden
-const MAX_BODY = 1024 * 1024;
-
-// Datei-Fallback für Claude-Terminal-Sitzungen
+const CRED_FILE = path.join(os.homedir(), ".claude", ".credentials.json");
 const DATA_FILE = path.join(os.homedir(), ".claude", "usage-bar-data.json");
+const POLL_MS = 5 * 60 * 1000;
 
 let statusBarItem: vscode.StatusBarItem;
+let out: vscode.OutputChannel;
 let cached: UsageData = {};
-let extensionCtx: vscode.ExtensionContext;
-
-// Referenzen für korrektes unsubscribe() (WeakRef würde nicht funktionieren)
-let dcRequestHandler: ((msg: unknown) => void) | undefined;
+let ctx: vscode.ExtensionContext;
 
 export function activate(context: vscode.ExtensionContext) {
-  extensionCtx = context;
+  ctx = context;
+  out = vscode.window.createOutputChannel("Claude Usage");
+  context.subscriptions.push(out);
 
-  // Status-Bar-Element anlegen
-  statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    50
-  );
-  statusBarItem.command = "claudeUsage.info";
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
+  statusBarItem.command = "claudeUsage.refresh";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // Letzten gespeicherten Zustand wiederherstellen
   const saved = context.globalState.get<UsageData>("usage");
-  if (saved) {
-    cached = saved;
-  }
+  if (saved) cached = saved;
   updateBar();
 
-  // Klick-Kommando: Info-Meldung
   context.subscriptions.push(
-    vscode.commands.registerCommand("claudeUsage.info", () => {
-      vscode.window.showInformationMessage(
-        "Claude Usage: Daten werden automatisch aktualisiert, wenn Claude Code eine Anfrage verarbeitet."
-      );
-    })
+    vscode.commands.registerCommand("claudeUsage.refresh", fetchUsage)
   );
 
-  // Passiver HTTP-Interceptor (kein eigener API-Call)
-  installIntercept();
-
-  // Datei-Watcher als Fallback für Terminal-Sitzungen
+  fetchUsage();
   watchDataFile();
 
-  // Alle 30 Sekunden: ablaufende Limits zurücksetzen & Anzeige aktualisieren
-  const timer = setInterval(() => {
-    resetExpired();
-    updateBar();
-    if (Object.keys(cached).length > 0) {
-      context.globalState.update("usage", cached);
-    }
-  }, 30_000);
-
-  context.subscriptions.push({
-    dispose: () => {
-      clearInterval(timer);
-      uninstallIntercept();
-    },
-  });
+  const pollTimer = setInterval(fetchUsage, POLL_MS);
+  const resetTimer = setInterval(() => { resetExpired(); updateBar(); }, 30_000);
+  context.subscriptions.push({ dispose: () => { clearInterval(pollTimer); clearInterval(resetTimer); } });
 }
 
-// ── Passiver HTTP-Interceptor ────────────────────────────────────────────────
+// ── Credentials ───────────────────────────────────────────────────────────────
 
-function installIntercept() {
-  if (dcRequestHandler) uninstallIntercept();
-
+function readToken(): string | undefined {
   try {
-    // Feuert für JEDEN ausgehenden HTTP-Request im Extension-Host-Prozess
-    dcRequestHandler = (message: unknown) => {
-      try {
-        const req = (message as { request: http.ClientRequest }).request;
-        if (!req) return;
-        const reqPath =
-          ((req as unknown as { path?: string }).path as string | undefined) ??
-          ((req as unknown as { _header?: string })._header as
-            | string
-            | undefined);
-        // Nur anthropic.com Usage-Endpunkt – expliziter Host-Check verhindert
-        // dass unverwandte Extensions unbeabsichtigt getrackt werden
-        const host =
-          (req.getHeader?.("host") as string | undefined) ??
-          ((req as unknown as { host?: string }).host as string | undefined) ??
-          ((req as unknown as { _host?: string })._host as string | undefined);
-        if (
-          reqPath?.includes("/api/oauth/usage") &&
-          host?.includes("anthropic.com")
-        ) {
-          // Genau hier anhängen, damit der Body früh genug mitgelesen wird.
-          // Bei response.finish wäre es bereits zu spät.
-          req.once("response", (res: http.IncomingMessage) => {
-            tapBody(res);
-          });
-        }
-      } catch {
-        // Niemals andere Extensions unterbrechen
-      }
-    };
-
-    diagnostics_channel.subscribe(
-      "http.client.request.start",
-      dcRequestHandler
-    );
-  } catch {
-    // diagnostics_channel nicht verfügbar – nur File-Watcher bleibt aktiv
+    const raw = JSON.parse(fs.readFileSync(CRED_FILE, "utf-8")) as Record<string, unknown>;
+    const oauth = raw.claudeAiOauth as Record<string, unknown> | undefined;
+    if (typeof oauth?.accessToken === "string") {
+      out.appendLine(`[auth] claudeAiOauth.accessToken gefunden (${oauth.accessToken.slice(0, 8)}...)`);
+      return oauth.accessToken;
+    }
+    if (typeof raw.accessToken === "string") return raw.accessToken;
+    if (typeof raw.apiKey === "string") return raw.apiKey;
+    out.appendLine("[auth] Kein Token gefunden in .credentials.json");
+  } catch (e) {
+    out.appendLine(`[auth] Fehler beim Lesen: ${e}`);
   }
+  return undefined;
 }
 
-function uninstallIntercept() {
-  try {
-    if (dcRequestHandler)
-      diagnostics_channel.unsubscribe(
-        "http.client.request.start",
-        dcRequestHandler
-      );
-  } catch {}
-  dcRequestHandler = undefined;
+// ── Aktives Polling ───────────────────────────────────────────────────────────
+
+function fetchUsage() {
+  const token = readToken();
+  if (!token) return;
+
+  // claude.ai OAuth → beide mögliche Endpoints versuchen
+  const candidates = [
+    { hostname: "api.anthropic.com", path: "/api/oauth/usage" },
+    { hostname: "claude.ai",         path: "/api/oauth/usage" },
+  ];
+
+  tryNext(candidates, 0, token);
 }
 
-/** Liest den Response-Body mit, ohne den originalen Datenfluss zu stören */
-function tapBody(res: http.IncomingMessage) {
-  let body = "";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const origOn = res.on.bind(res) as (...args: any[]) => http.IncomingMessage;
+function tryNext(candidates: { hostname: string; path: string }[], idx: number, token: string) {
+  if (idx >= candidates.length) {
+    out.appendLine("[fetch] Alle Endpoints fehlgeschlagen");
+    return;
+  }
+  const { hostname, path: reqPath } = candidates[idx];
+  out.appendLine(`[fetch] Versuche https://${hostname}${reqPath}`);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (res as any).on = function (event: string, listener: (...args: any[]) => void): http.IncomingMessage {
-    if (event === "data") {
-      return origOn(event, (chunk: Buffer | string) => {
-        if (body.length < MAX_BODY) body += chunk.toString();
-        listener(chunk);
-      });
-    }
-    if (event === "end") {
-      return origOn(event, (...args: unknown[]) => {
-        try {
-          if (body) parseUsageResponse(body);
-        } catch {}
-        listener(...args);
-      });
-    }
-    return origOn(event, listener);
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${token}`,
+    "Accept": "application/json",
+    "User-Agent": "claude-code",
   };
+
+  const req = https.request({ hostname, path: reqPath, method: "GET", headers }, (res) => {
+    let body = "";
+    res.on("data", (c: Buffer) => (body += c.toString()));
+    res.on("end", () => {
+      out.appendLine(`[fetch] ${hostname} → HTTP ${res.statusCode}`);
+      if (body.length < 500) out.appendLine(`[fetch] Body: ${body}`);
+      if (res.statusCode === 200) {
+        try {
+          handleUsageData(JSON.parse(body) as Record<string, unknown>);
+          return;
+        } catch (e) {
+          out.appendLine(`[fetch] JSON-Fehler: ${e}`);
+        }
+      }
+      // Nächsten Endpoint versuchen
+      tryNext(candidates, idx + 1, token);
+    });
+  });
+  req.on("error", (e: Error) => {
+    out.appendLine(`[fetch] Netzwerkfehler (${hostname}): ${e.message}`);
+    tryNext(candidates, idx + 1, token);
+  });
+  req.end();
 }
 
-// ── Daten parsen ─────────────────────────────────────────────────────────────
+// ── Daten verarbeiten ─────────────────────────────────────────────────────────
 
-function parseUsageResponse(raw: string) {
-  const data = JSON.parse(raw) as Record<string, unknown>;
+function handleUsageData(data: Record<string, unknown>) {
+  out.appendLine(`[parse] Felder: ${Object.keys(data).join(", ")}`);
   const next: UsageData = {};
 
   const fiveHour = data.five_hour as Record<string, unknown> | undefined;
@@ -179,9 +131,7 @@ function parseUsageResponse(raw: string) {
     };
   }
 
-  const sevenDay = (data.seven_day ?? data.seven_day_sonnet) as
-    | Record<string, unknown>
-    | undefined;
+  const sevenDay = (data.seven_day ?? data.seven_day_sonnet) as Record<string, unknown> | undefined;
   if (sevenDay?.utilization != null) {
     next.weekly = {
       utilization: normalizeUtil(sevenDay.utilization as number),
@@ -189,17 +139,21 @@ function parseUsageResponse(raw: string) {
     };
   }
 
+  if (!next.session && !next.weekly) {
+    out.appendLine("[parse] Keine bekannten Felder (five_hour/seven_day) gefunden");
+    return;
+  }
+
   cached = next;
-  extensionCtx.globalState.update("usage", cached);
+  ctx.globalState.update("usage", cached);
   updateBar();
+  out.appendLine(`[parse] OK: session=${JSON.stringify(next.session)} weekly=${JSON.stringify(next.weekly)}`);
 }
 
-/** API liefert manchmal 0-1, manchmal 0-100 */
 function normalizeUtil(v: number): number {
   return v > 1 ? v / 100 : v;
 }
 
-/** resets_at kann Unix-Timestamp (Zahl) oder ISO-String sein */
 function parseTime(v: unknown): number | undefined {
   if (typeof v === "number") return v;
   if (typeof v === "string") {
@@ -209,70 +163,53 @@ function parseTime(v: unknown): number | undefined {
   return undefined;
 }
 
-// ── Datei-Fallback (für Terminal-Claude-Sitzungen) ───────────────────────────
+// ── Datei-Fallback ────────────────────────────────────────────────────────────
 
 function watchDataFile() {
   try {
     const dir = path.dirname(DATA_FILE);
     if (!fs.existsSync(dir)) return;
-
-    fs.watch(dir, (_eventType, filename) => {
+    fs.watch(dir, (_e, filename) => {
       if (filename === path.basename(DATA_FILE)) readDataFile();
     });
-
     readDataFile();
-  } catch {
-    // Fallback optional – kein Fehler hochbubbeln
-  }
+  } catch {}
 }
 
 function readDataFile() {
   try {
     if (!fs.existsSync(DATA_FILE)) return;
-    const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-
-    // Typ-sichere Prüfung: kein string "now" o.ä. als timestamp
+    const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as Record<string, unknown>;
     if (typeof raw.timestamp !== "number") return;
-    if (Date.now() / 1000 - raw.timestamp > 6 * 3600) return; // älter als 6h ignorieren
-
-    const rl = raw.rate_limits as
-      | Record<string, Record<string, unknown>>
-      | undefined;
+    if (Date.now() / 1000 - raw.timestamp > 6 * 3600) return;
+    const rl = raw.rate_limits as Record<string, Record<string, unknown>> | undefined;
     if (rl?.five_hour?.used_percentage != null) {
-      cached.session = {
-        utilization: (rl.five_hour.used_percentage as number) / 100,
-        resetsAt: rl.five_hour.resets_at as number | undefined,
-      };
+      cached.session = { utilization: (rl.five_hour.used_percentage as number) / 100, resetsAt: rl.five_hour.resets_at as number | undefined };
     }
     if (rl?.seven_day?.used_percentage != null) {
-      cached.weekly = {
-        utilization: (rl.seven_day.used_percentage as number) / 100,
-        resetsAt: rl.seven_day.resets_at as number | undefined,
-      };
+      cached.weekly = { utilization: (rl.seven_day.used_percentage as number) / 100, resetsAt: rl.seven_day.resets_at as number | undefined };
     }
-
     updateBar();
-  } catch {
-    // Datei-Fehler still ignorieren
-  }
+  } catch {}
 }
 
-// ── Abgelaufene Limits zurücksetzen ──────────────────────────────────────────
+// ── Ablauf ────────────────────────────────────────────────────────────────────
 
 function resetExpired() {
   const now = Date.now() / 1000;
-  if (cached.session?.resetsAt && now >= cached.session.resetsAt) {
-    cached.session = { utilization: 0 };
-  }
-  if (cached.weekly?.resetsAt && now >= cached.weekly.resetsAt) {
-    cached.weekly = { utilization: 0 };
-  }
+  if (cached.session?.resetsAt && now >= cached.session.resetsAt) cached.session = { utilization: 0 };
+  if (cached.weekly?.resetsAt && now >= cached.weekly.resetsAt) cached.weekly = { utilization: 0 };
 }
 
-// ── Statusleiste aktualisieren ───────────────────────────────────────────────
+// ── Statusleiste ──────────────────────────────────────────────────────────────
+
+function circleIcon(pct: number): string {
+  if (pct === 0) return "○";
+  if (pct <= 25) return "◔";
+  if (pct <= 50) return "◑";
+  if (pct <= 75) return "◕";
+  return "●";
+}
 
 function timeLeft(epochSec: number): string {
   const diff = Math.floor(epochSec - Date.now() / 1000);
@@ -290,9 +227,8 @@ function updateBar() {
   const w = cached.weekly;
 
   if (!s && !w) {
-    statusBarItem.text = "$(clock) Claude: warte auf Usage";
-    statusBarItem.tooltip =
-      "Claude Usage\nNoch keine Daten – sende eine Nachricht in Claude Code.";
+    statusBarItem.text = "✦";
+    statusBarItem.tooltip = "Claude Usage: Noch keine Daten · Klick zum Aktualisieren";
     statusBarItem.backgroundColor = undefined;
     return;
   }
@@ -302,47 +238,34 @@ function updateBar() {
 
   if (s) {
     const pct = Math.floor(s.utilization * 100);
-    const rst = s.resetsAt ? ` · ${timeLeft(s.resetsAt)}` : "";
-    parts.push(`S: ${pct}%${rst}`);
+    parts.push(`${circleIcon(pct)} S${pct}`);
     pcts.push(pct);
   }
   if (w) {
     const pct = Math.floor(w.utilization * 100);
-    const rst = w.resetsAt ? ` · ${timeLeft(w.resetsAt)}` : "";
-    parts.push(`W: ${pct}%${rst}`);
+    parts.push(`${circleIcon(pct)} W${pct}`);
     pcts.push(pct);
   }
 
-  statusBarItem.text = `$(pulse) ${parts.join("  ")}`;
+  statusBarItem.text = parts.join(" ");
 
-  // Tooltip-Details
-  const lines = ["Claude Rate Limits", "─".repeat(22)];
-  if (s)
-    lines.push(
-      `Session (5h): ${Math.floor(s.utilization * 100)}%${s.resetsAt ? "  · Reset in " + timeLeft(s.resetsAt) : ""}`
-    );
-  if (w)
-    lines.push(
-      `Weekly  (7d): ${Math.floor(w.utilization * 100)}%${w.resetsAt ? "  · Reset in " + timeLeft(w.resetsAt) : ""}`
-    );
-  lines.push("", "Aktualisiert automatisch");
+  const lines: string[] = ["Claude Rate Limits"];
+  if (s) {
+    const pct = Math.floor(s.utilization * 100);
+    lines.push(`Session (5h):  ${pct}%${s.resetsAt ? "  · Reset in " + timeLeft(s.resetsAt) : ""}`);
+  }
+  if (w) {
+    const pct = Math.floor(w.utilization * 100);
+    lines.push(`Weekly  (7d):  ${pct}%${w.resetsAt ? "  · Reset in " + timeLeft(w.resetsAt) : ""}`);
+  }
+  lines.push("", "Klick zum Aktualisieren");
   statusBarItem.tooltip = lines.join("\n");
 
-  // Farbwarnung
   const maxPct = Math.max(...pcts);
-  if (maxPct >= 90) {
-    statusBarItem.backgroundColor = new vscode.ThemeColor(
-      "statusBarItem.errorBackground"
-    );
-  } else if (maxPct >= 70) {
-    statusBarItem.backgroundColor = new vscode.ThemeColor(
-      "statusBarItem.warningBackground"
-    );
-  } else {
-    statusBarItem.backgroundColor = undefined;
-  }
+  statusBarItem.backgroundColor =
+    maxPct >= 90 ? new vscode.ThemeColor("statusBarItem.errorBackground") :
+    maxPct >= 70 ? new vscode.ThemeColor("statusBarItem.warningBackground") :
+    undefined;
 }
 
-export function deactivate() {
-  uninstallIntercept();
-}
+export function deactivate() {}
