@@ -1,10 +1,16 @@
-# Claude Usage Statusbar
-
 <p align="center">
   <img src="icon.svg" width="96" height="96" alt="Claude Usage Statusbar Icon"/>
 </p>
 
-Zeigt deine **Claude Code Rate-Limit-Nutzung** (Session 5h & Weekly 7d) direkt in der VS Code Statusleiste.
+<h1 align="center">Claude Usage Statusbar</h1>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT"/></a>
+</p>
+
+<p align="center">
+  Zeigt deine **Claude Code Rate-Limit-Nutzung** (Session 5h & Weekly 7d) direkt in der VS Code Statusleiste.
+</p>
 
 <p align="center">
   <img src="example.png" alt="Beispiel: Claude Usage Statusbar"/>
