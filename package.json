@@ -2,7 +2,7 @@
   "name": "claude-usage-statusbar",
   "displayName": "Claude Usage Statusbar",
   "description": "Zeigt die Claude Code Rate-Limit-Nutzung (Session & Weekly) in der VS Code Statusleiste.",
-  "version": "0.3.5",
+  "version": "1.0.0",
   "publisher": "dipser",
   "license": "MIT",
   "repository": {

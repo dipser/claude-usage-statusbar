@@ -40,15 +40,20 @@ Beim Hover über die Statusleiste erscheint ein detaillierter Tooltip mit:
 - Fortschrittsbalken mit 10 Blöcken (▰▰▰▱▱▱▱▱▱▱)
 - Reset-Datum (z.B. „Setzt 1. Juli um 02:00 zurück")
 
+## Release 1.0.0
+
+- Erste stabile GitHub-Veröffentlichung
+- Asset-Verteilung über `releases/tag/v1.0.0`
+
 ## Installation (als .vsix-Datei)
 
-1. Die `.vsix`-Datei aus den [Releases](../../releases) herunterladen
+1. Die `.vsix`-Datei aus den [Releases](https://github.com/dipser/claude-usage-statusbar/releases) herunterladen
 2. In VS Code: `Strg+Shift+P` → **Extensions: Install from VSIX...**
 3. Datei auswählen – fertig
 
 Oder per Terminal:
 ```bash
-code --install-extension claude-usage-statusbar-0.3.5.vsix
+code --install-extension claude-usage-statusbar-1.0.0.vsix
 ```
 
 ## Selbst bauen
