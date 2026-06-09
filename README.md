@@ -16,9 +16,11 @@
   <img src="example.png" alt="Beispiel: Claude Usage Statusbar"/>
 </p>
 
+
 ## Wie es funktioniert
 
 Die Extension liest die gespeicherten Claude-Zugangsdaten aus `~/.claude/.credentials.json` und ruft alle 5 Minuten `/api/oauth/usage` direkt ab. Als Fallback überwacht sie `~/.claude/usage-bar-data.json` für Daten aus Terminal-Claude-Sitzungen. Ein Klick auf die Statusleiste aktualisiert sofort.
+
 
 ## Statusleiste
 
@@ -32,6 +34,7 @@ Die Extension liest die gespeicherten Claude-Zugangsdaten aus `~/.claude/.creden
 
 Die 4 Blöcke in der Bar zeigen grobe Stufen: ▱▱▱▱ (0–24%) · ▰▱▱▱ (25–49%) · ▰▰▱▱ (50–74%) · ▰▰▰▱ (75–99%) · ▰▰▰▰ (100%)
 
+
 ## Tooltip
 
 Beim Hover über die Statusleiste erscheint ein detaillierter Tooltip mit:
@@ -40,10 +43,12 @@ Beim Hover über die Statusleiste erscheint ein detaillierter Tooltip mit:
 - Fortschrittsbalken mit 10 Blöcken (▰▰▰▱▱▱▱▱▱▱)
 - Reset-Datum (z.B. „Setzt 1. Juli um 02:00 zurück")
 
+
 ## Release 1.0.0
 
 - Erste stabile GitHub-Veröffentlichung
 - Asset-Verteilung über `releases/tag/v1.0.0`
+
 
 ## Installation (als .vsix-Datei)
 
@@ -66,10 +71,36 @@ npm run compile
 npm run package    # erzeugt .vsix-Datei
 ```
 
+
 ## Voraussetzungen
 
 - [Claude Code VS Code Extension](https://claude.ai/download) installiert und eingeloggt
 - VS Code 1.80+
+
+
+## Release erstellen
+
+<small><small><small>
+```bash
+# 1. Versionsnummer in `package.json` anpassen:
+npm version 1.0.0 --no-git-tag-version
+
+# 2. Änderungen committen:
+git add package.json README.md
+git commit -m "Release 1.0.0"
+
+# 3. Einen Git-Tag anlegen:
+git tag v1.0.0
+
+# 4. Commit und Tag zum Remote pushen:
+git push origin main
+git push origin v1.0.0
+
+# 5. Release auf GitHub erstellen:
+gh release create v1.0.0 --title "v1.0.0" --notes "Beschreibung"
+```
+</small></small></small>
+
 
 ## Lizenz
 
