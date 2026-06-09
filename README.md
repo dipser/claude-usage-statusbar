@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.svg" width="96" height="96" alt="Claude Usage Statusbar Icon"/>
+  <img src="icon.png" width="96" height="96" alt="Claude Usage Statusbar Icon"/>
 </p>
 
 <h1 align="center">Claude Usage Statusbar</h1>
